@@ -179,6 +179,25 @@ impl TextureManager {
             .clone()
     }
 
+    // Allocates a new texture read from a `DynamicImage` object.
+    ///
+    /// If a texture with same name exists, it will be overwritten.
+    
+    pub fn add_image_or_overwrite(&mut self, image: DynamicImage, name: &str) -> Rc<Texture> {
+        let generate_mipmaps = self.generate_mipmaps;
+        
+        let t = self.textures
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                (Texture::new(), (0,0))
+            });
+
+        let dims = TextureManager::load_texture_into_context2(t.0.clone(), image, generate_mipmaps).unwrap();
+        t.1 = dims;
+        return t.0.clone();
+        
+    }
+
     /// Allocates a new texture and tries to decode it from bytes array
     /// Panics if unable to do so
     /// If a texture with same name exists, nothing is created and the old texture is returned.
@@ -195,6 +214,60 @@ impl TextureManager {
             .unwrap_or_else(|e| panic!("Unable to load texture from file {:?}: {:?}", path, e));
         TextureManager::load_texture_into_context(image, generate_mipmaps)
             .unwrap_or_else(|e| panic!("Unable to upload texture {:?}: {:?}", path, e))
+    }
+
+    fn load_texture_into_context2(tex : Rc<Texture>,
+        image: DynamicImage,
+        generate_mipmaps: bool,
+    ) -> Result<(u32, u32), &'static str> {
+        let ctxt = Context::get();
+        
+        let (width, height) = image.dimensions();
+
+        unsafe {
+            verify!(ctxt.active_texture(Context::TEXTURE0));
+            verify!(ctxt.bind_texture(Context::TEXTURE_2D, Some(&*tex)));
+            TextureManager::call_tex_image2d(&ctxt, &image, 0)?;
+
+            let mut min_filter = Context::LINEAR;
+            if generate_mipmaps {
+                let (mut w, mut h) = (width, height);
+                let mut image = image;
+
+                for level in 1.. {
+                    if w == 1 && h == 1 {
+                        break;
+                    }
+                    w = (w + 1) / 2;
+                    h = (h + 1) / 2;
+                    image = image.resize_exact(w, h, FilterType::CatmullRom);
+                    TextureManager::call_tex_image2d(&ctxt, &image, level)?;
+                }
+                min_filter = Context::LINEAR_MIPMAP_LINEAR;
+            }
+
+            verify!(ctxt.tex_parameteri(
+                Context::TEXTURE_2D,
+                Context::TEXTURE_WRAP_S,
+                Context::CLAMP_TO_EDGE as i32
+            ));
+            verify!(ctxt.tex_parameteri(
+                Context::TEXTURE_2D,
+                Context::TEXTURE_WRAP_T,
+                Context::CLAMP_TO_EDGE as i32
+            ));
+            verify!(ctxt.tex_parameteri(
+                Context::TEXTURE_2D,
+                Context::TEXTURE_MIN_FILTER,
+                min_filter as i32,
+            ));
+            verify!(ctxt.tex_parameteri(
+                Context::TEXTURE_2D,
+                Context::TEXTURE_MAG_FILTER,
+                Context::LINEAR as i32
+            ));
+        }
+        Ok((width, height))
     }
 
     fn load_texture_into_context(
