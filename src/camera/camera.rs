@@ -69,6 +69,14 @@ pub trait Camera {
         )
     }
 
+    fn project_into_camera_space(&self, world_coord: &Point3<f32>) -> Vector3<f32> {
+        let h_world_coord = world_coord.to_homogeneous();
+        let h_normalized_coord = self.transformation() * h_world_coord;
+
+        let n = Point3::from_homogeneous(h_normalized_coord).unwrap();
+        Vector3::new(n.x, n.y, n.z)
+    }
+
     /// Converts a point in 2d screen coordinates to a ray (a 3d position and a direction).
     ///
     /// The screen is assumed to have a size given by `size`.
